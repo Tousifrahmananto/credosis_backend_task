@@ -33,7 +33,8 @@ For a direct API call, open http://127.0.0.1:3000/routes or run:
 Invoke-RestMethod http://127.0.0.1:3000/routes | ConvertTo-Json -Depth 6
 ```
 
-The server listens locally on port 3000. Stop it with Ctrl+C.
+The server defaults to `127.0.0.1:3000`. `HOST` and `PORT` can override this for
+hosting. Stop it with Ctrl+C.
 
 ## Step 2: inspect bus locations
 
@@ -187,19 +188,19 @@ candidate must understand and explain the code.
 ## Push this milestone to GitHub
 
 The project has its own Git repository. The lockfile belongs in Git;
-`node_modules`, `.env` files and logs are ignored. Create an empty GitHub repository,
-then use its actual URL in the command below:
+`node_modules`, `.env` files, SQLite data and logs are ignored. The configured remote
+is https://github.com/Tousifrahmananto/credosis_backend_task. To push further changes:
 
 ```powershell
 Set-Location G:\credosis-bus-tracker
 git add .
-git commit -m "Add route discovery API and Swagger documentation"
-git remote add origin YOUR_GITHUB_REPOSITORY_URL
-git push -u origin main
+git commit -m "Prepare backend hosting and persistent Docker storage"
+git push origin main
 ```
 
 Check `git status` before committing. GitHub authentication is required for the
-push. This project has not been pushed, deployed or submitted by the assistant.
+push. Your existing branch tracks `origin/main`; the assistant has not pushed these
+new hosting changes. See [DEPLOYMENT.md](DEPLOYMENT.md) for container and host settings.
 
 Express setup follows the [official Express example](https://expressjs.com/en/starter/hello-world/).
 Swagger assets follow the [official Swagger UI installation documentation](https://swagger.io/docs/open-source-tools/swagger-ui/usage/installation/).
