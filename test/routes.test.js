@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { once } from 'node:events';
-import { app } from '../src/app.js';
+import { createApp } from '../src/app.js';
+import { createBusStore } from '../src/buses.js';
 
 test('route discovery returns labelled demo data, ordered stops and JSON errors', async (t) => {
+  const store = createBusStore();
+  t.after(() => store.close());
+  const app = createApp(store);
   const server = app.listen(0, '127.0.0.1');
   t.after(() => new Promise((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve());

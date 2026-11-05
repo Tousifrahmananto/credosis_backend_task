@@ -14,7 +14,7 @@ verified route, timetable or source of live travel information.
 
 Project location: `G:\credosis-bus-tracker`.
 
-Run with Node.js 22 or newer (the start scripts use native optional `.env` loading):
+Run with Node.js 22.13 or newer (the start scripts use native optional `.env` loading and SQLite):
 
 ```powershell
 npm ci
@@ -42,9 +42,9 @@ bus readings with coordinates, UTC `lastUpdated` timestamps and `isStale` flags.
 The response includes `checkedAt` and `staleAfterSeconds: 120`. A reading is
 stale when it is **at least two minutes old**. Responses use `Cache-Control: no-store`.
 
-The first sample starts 30 seconds old and the second starts five minutes old.
-Readings stay fixed until an authorized location update or server restart, so both
-eventually become stale without updates.
+On the first database creation, the samples start 30 seconds and five minutes old.
+Saved timestamps survive restarts and stay fixed until an authorized location
+update, so both eventually become stale without updates.
 These are demonstration coordinates, not moving or live buses. No ETA is calculated.
 
 In Swagger, expand the **Buses** endpoint and use route ID `demo-mirpur-farmgate`.
@@ -115,13 +115,42 @@ Rejected updates do not modify bus data. Tokens are not exposed through the API 
 Swagger document. Keep `.env` and tokens out of Git, screenshots and walkthroughs.
 This remains a local demo; use HTTPS and rotate development tokens before public use.
 
+## Step 4: persistent bus locations
+
+Accepted GPS updates now persist in `data/bus-tracker.sqlite`. The server creates
+the directory and table automatically, then inserts missing demo buses without
+overwriting saved locations or refreshing their timestamps.
+
+SQLite is used instead of the originally discussed MongoDB so this small demo
+can run without a separate database service or account. It uses Node's built-in
+`node:sqlite`; no database dependency was added. Node may print its experimental
+SQLite warning on supported Node 22/24 versions.
+
+The `buses` table stores the bus ID, route ID, coordinates and reading time.
+Parameterized SQL protects values, coordinate constraints protect stored data,
+and an atomic `UPDATE ... WHERE recorded_at < ?` rejects older/duplicate writes.
+Storage failures return a JSON 503; unreadable database files stop startup rather
+than being silently replaced. Tokens stay in environment variables, outside the database.
+
+To check persistence manually, submit a location through Swagger, note its
+`lastUpdated`, stop the server, run `npm start` again and read the route's buses.
+The coordinates and timestamp should be unchanged; `isStale` can change as time passes.
+
+`DATABASE_PATH` optionally selects another file. Default: `data/bus-tracker.sqlite`
+relative to the working directory. The database and sidecar files are ignored by
+Git. Tests use separate in-memory or temporary databases, never your demo data.
+
+This synchronous local store suits one small demo instance. Deployment needs a
+persistent disk for the SQLite file; ephemeral hosting can lose saved data. Use a
+shared database before running multiple application instances.
+
 ## Later steps (not implemented)
 
-1. Persistent storage for location updates.
-2. Deployment and the demo walkthrough.
+1. Deployment with durable storage.
+2. Demo walkthrough and submission.
 
-The current demo has no database, arrival estimates or deployment. Accepted writes
-are in memory and reset on restart. Seed data and tracker updates remain simulated.
+The current demo has no arrival estimates or deployment. Seed data and tracker
+updates remain simulated; only the saved readings persist.
 The integration test starts a real local HTTP server and checks the route response,
 sample coordinate bounds and JSON 404 handling.
 It also checks the published documentation example against the real API response,
@@ -131,6 +160,9 @@ route filtering, coordinates, cache headers, documented fields, empty routes and
 GPS write tests cover per-bus tokens, missing configuration, coordinate limits,
 zero coordinates, invalid timestamps, malformed/oversized JSON, replay rejection,
 unchanged data after rejection and immediate read-after-write behavior.
+Persistence tests reopen the database in another Node process, check seeds do not
+reset saved timestamps, enforce replay protection after reopening, exercise a real
+SQLite write lock and reject an unreadable database.
 
 ## Backend evaluation criteria
 
@@ -139,11 +171,11 @@ data handling, validation and error handling using Swagger UI or Scalar.
 
 | Criterion | Current evidence | Remaining work |
 | --- | --- | --- |
-| API functionality | Route discovery, bus-location reads and authenticated GPS updates, tested over HTTP | Persistence and deployment |
+| API functionality | Route discovery, bus-location reads and authenticated GPS updates, tested over HTTP | Deployment |
 | Code structure | Separate app, server, route data and OpenAPI document | Add each feature in a small step |
-| Data handling | Ordered stops, stable IDs, simulated readings, UTC timestamps and computed stale flags | Persist bus location updates |
-| Validation | Per-bus tokens, coordinate bounds/types, strict UTC timestamps, newer readings only, body limit and unknown-field rejection | Recheck with persistent storage |
-| Error handling | JSON errors for invalid input/authentication, missing resources, stale writes, oversized bodies and missing configuration | Storage failures when persistence is added |
+| Data handling | Ordered stops, stable IDs, SQLite persistence, UTC timestamps and computed stale flags | Durable hosting disk |
+| Validation | Per-bus tokens, coordinate bounds/types, strict UTC timestamps, atomic newer-reading writes, body limit and unknown-field rejection | Check on deployed instance |
+| Error handling | JSON errors for invalid input/authentication, missing resources, stale writes, oversized bodies, configuration and storage failures | Check on deployed instance |
 | API demonstration | Swagger UI at `/docs`, examples and response schemas | Document new endpoints as they are implemented |
 
 This is an early milestone, not the completed recruitment submission. The final
@@ -171,3 +203,4 @@ push. This project has not been pushed, deployed or submitted by the assistant.
 
 Express setup follows the [official Express example](https://expressjs.com/en/starter/hello-world/).
 Swagger assets follow the [official Swagger UI installation documentation](https://swagger.io/docs/open-source-tools/swagger-ui/usage/installation/).
+Persistence uses [Node's built-in SQLite API](https://nodejs.org/api/sqlite.html).

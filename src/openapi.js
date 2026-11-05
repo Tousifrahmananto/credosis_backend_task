@@ -5,7 +5,7 @@ export const openapi = {
   info: {
     title: 'Dhaka Bus Tracker API',
     version: '0.1.0',
-    description: 'Credosis backend demo: routes, bus locations, stale-data flags and per-bus authenticated GPS updates. All service data is simulated and stored in memory. Updates reset on restart.',
+    description: 'Credosis backend demo: routes, bus locations, stale-data flags and per-bus authenticated GPS updates. Simulated bus readings persist in a local SQLite database across restarts.',
   },
   servers: [{ url: '/' }],
   paths: {
@@ -13,7 +13,7 @@ export const openapi = {
       post: {
         operationId: 'updateBusLocation',
         summary: 'Update one demo bus location',
-        description: 'Requires the target bus tracker token (minimum 32 characters), configured in the server environment. Use Authorize with the token only. Accepts at most 1 KB of JSON. recordedAt must be UTC ISO with milliseconds, no later than server time and strictly newer than the saved reading. Unknown fields are rejected. Updates are in memory and reset on restart. Never paste tracker tokens into public recordings.',
+        description: 'Requires the target bus tracker token (minimum 32 characters), configured in the server environment. Use Authorize with the token only. Accepts at most 1 KB of JSON. recordedAt must be UTC ISO with milliseconds, no later than server time and strictly newer than the saved reading. Unknown fields are rejected. SQLite saves accepted updates across restarts. The timestamp condition is enforced atomically in SQL. Never paste tracker tokens into public recordings.',
         tags: ['Buses'],
         security: [{ TrackerToken: [] }],
         parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' }, example: 'demo-bus-01' }],
@@ -36,7 +36,7 @@ export const openapi = {
             [409, 'Reading is older than or equal to the saved timestamp'],
             [413, 'Request body exceeds 1 KB'],
             [415, 'Unsupported content type or encoding'],
-            [503, 'Bus token missing or shorter than 32 characters on the server'],
+            [503, 'Bus token missing/too short, or location storage temporarily unavailable'],
           ].map(([status, description]) => [status, {
             description, content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
           }])),
@@ -47,7 +47,7 @@ export const openapi = {
       get: {
         operationId: 'listRouteBuses',
         summary: 'Get sample bus locations and freshness',
-        description: 'Public read-only endpoint. Returns buses assigned to the route and computed isStale flags. Readings at least 120 seconds old are stale. Seed timestamps stay fixed until an authorized GPS update or server restart. Existing routes with no assigned buses return an empty array. No arrival predictions are provided.',
+        description: 'Public read-only endpoint. Returns saved bus locations and computed isStale flags. Readings at least 120 seconds old are stale. Timestamps survive restarts and change only after an accepted GPS update. Existing routes with no assigned buses return an empty array. No arrival predictions are provided.',
         tags: ['Buses'],
         parameters: [{
           name: 'id', in: 'path', required: true,
@@ -62,7 +62,7 @@ export const openapi = {
               schema: { $ref: '#/components/schemas/BusLocationsResponse' },
               example: {
                 dataMode: 'simulated',
-                notice: 'Simulated bus locations stored in memory. Not live bus locations.',
+                notice: 'Simulated bus locations saved in SQLite. Not live bus locations.',
                 routeId: 'demo-mirpur-farmgate',
                 checkedAt: '2026-11-05T10:00:00.000Z',
                 staleAfterSeconds: 120,
@@ -79,6 +79,13 @@ export const openapi = {
             content: { 'application/json': {
               schema: { $ref: '#/components/schemas/Error' },
               example: { error: 'Route not found' },
+            } },
+          },
+          503: {
+            description: 'Location storage is temporarily unavailable.',
+            content: { 'application/json': {
+              schema: { $ref: '#/components/schemas/Error' },
+              example: { error: 'Location storage is temporarily unavailable' },
             } },
           },
         },

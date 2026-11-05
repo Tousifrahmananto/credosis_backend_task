@@ -1,21 +1,26 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { once } from 'node:events';
-import { buses, getBusLocations } from '../src/buses.js';
+import { createBusStore } from '../src/buses.js';
 import { routes } from '../src/routes.js';
-import { app } from '../src/app.js';
+import { createApp } from '../src/app.js';
 
-test('freshness switches at exactly two minutes without rewriting the reading', () => {
-  const bus = buses[0];
+test('freshness switches at exactly two minutes without rewriting the reading', (t) => {
+  const store = createBusStore();
+  t.after(() => store.close());
+  const bus = store.get('demo-bus-01');
   const recordedAt = Date.parse(bus.lastUpdated);
-  assert.equal(getBusLocations(bus.routeId, recordedAt + 119_999)[0].isStale, false);
-  assert.equal(getBusLocations(bus.routeId, recordedAt + 120_000)[0].isStale, true);
-  assert.equal(getBusLocations(bus.routeId, recordedAt + 120_001)[0].isStale, true);
-  assert.equal(getBusLocations(bus.routeId, recordedAt + 600_000)[0].lastUpdated, bus.lastUpdated);
-  assert.deepEqual(getBusLocations('another-route', recordedAt), []);
+  assert.equal(store.list(bus.routeId, recordedAt + 119_999)[0].isStale, false);
+  assert.equal(store.list(bus.routeId, recordedAt + 120_000)[0].isStale, true);
+  assert.equal(store.list(bus.routeId, recordedAt + 120_001)[0].isStale, true);
+  assert.equal(store.list(bus.routeId, recordedAt + 600_000)[0].lastUpdated, bus.lastUpdated);
+  assert.deepEqual(store.list('another-route', recordedAt), []);
 });
 
 test('bus endpoint reports simulated locations, an empty route and unknown route distinctly', async (t) => {
+  const store = createBusStore();
+  t.after(() => store.close());
+  const app = createApp(store);
   const server = app.listen(0, '127.0.0.1');
   t.after(() => new Promise((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve());

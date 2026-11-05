@@ -1,22 +1,23 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { once } from 'node:events';
-import { app } from '../src/app.js';
-import { buses } from '../src/buses.js';
+import { createApp } from '../src/app.js';
+import { createBusStore } from '../src/buses.js';
 
 test('GPS updates enforce per-bus authorization and preserve data on every rejected request', async (t) => {
+  const store = createBusStore();
+  t.after(() => store.close());
+  const app = createApp(store);
   const tokenKey = 'TRACKER_TOKEN_DEMO_BUS_01';
   const originalToken = process.env[tokenKey];
   const otherTokenKey = 'TRACKER_TOKEN_DEMO_BUS_02';
   const originalOtherToken = process.env[otherTokenKey];
-  const originalBus = { ...buses[0] };
-  const otherBus = { ...buses[1] };
+  const otherBus = store.get('demo-bus-02');
   const token = 'test-only-bus-one-token-12345678901234567890';
   const otherToken = 'test-only-bus-two-token-12345678901234567890';
   process.env[tokenKey] = token;
   process.env[otherTokenKey] = otherToken;
   t.after(() => {
-    Object.assign(buses[0], originalBus);
     if (originalToken === undefined) delete process.env[tokenKey];
     else process.env[tokenKey] = originalToken;
     if (originalOtherToken === undefined) delete process.env[otherTokenKey];
@@ -33,12 +34,12 @@ test('GPS updates enforce per-bus authorization and preserve data on every rejec
   const valid = { latitude: 23.799, longitude: 90.371, recordedAt: new Date(Date.now() - 1000).toISOString() };
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   async function rejectUpdate(status, body, requestHeaders = headers, url = endpoint) {
-    const before = structuredClone(buses);
+    const before = store.list('demo-mirpur-farmgate', 0);
     const response = await fetch(url, { method: 'POST', headers: requestHeaders, body: typeof body === 'string' ? body : JSON.stringify(body) });
     assert.equal(response.status, status);
     assert.match(response.headers.get('content-type'), /application\/json/);
     assert.equal(typeof (await response.json()).error, 'string');
-    assert.deepEqual(buses, before, 'Rejected input must never change bus readings');
+    assert.deepEqual(store.list('demo-mirpur-farmgate', 0), before, 'Rejected input must never change bus readings');
     return response;
   }
 
@@ -90,7 +91,7 @@ test('GPS updates enforce per-bus authorization and preserve data on every rejec
     }) });
     assert.equal(zero.status, 200);
     assert.equal((await zero.json()).bus.latitude, 0);
-    assert.deepEqual(buses[1], otherBus, 'Updating one bus must not change another bus');
+    assert.deepEqual(store.get('demo-bus-02'), otherBus, 'Updating one bus must not change another bus');
   });
 
   await t.test('Swagger documents authentication, input rules and every expected rejection', async () => {
