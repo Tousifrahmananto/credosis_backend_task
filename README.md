@@ -14,7 +14,7 @@ verified route, timetable or source of live travel information.
 
 Project location: `G:\credosis-bus-tracker`.
 
-Run with Node.js 18 or newer:
+Run with Node.js 22 or newer (the start scripts use native optional `.env` loading):
 
 ```powershell
 npm ci
@@ -35,17 +35,102 @@ Invoke-RestMethod http://127.0.0.1:3000/routes | ConvertTo-Json -Depth 6
 
 The server listens locally on port 3000. Stop it with Ctrl+C.
 
+## Step 2: inspect bus locations
+
+Implemented: `GET /routes/demo-mirpur-farmgate/buses` returns two fictional
+bus readings with coordinates, UTC `lastUpdated` timestamps and `isStale` flags.
+The response includes `checkedAt` and `staleAfterSeconds: 120`. A reading is
+stale when it is **at least two minutes old**. Responses use `Cache-Control: no-store`.
+
+The first sample starts 30 seconds old and the second starts five minutes old.
+Readings stay fixed until an authorized location update or server restart, so both
+eventually become stale without updates.
+These are demonstration coordinates, not moving or live buses. No ETA is calculated.
+
+In Swagger, expand the **Buses** endpoint and use route ID `demo-mirpur-farmgate`.
+Try `no-such-route` to see the documented JSON 404, `{"error":"Route not found"}`.
+An existing route with no assigned buses returns HTTP 200 with `buses: []`.
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:3000/routes/demo-mirpur-farmgate/buses | ConvertTo-Json -Depth 6
+```
+
+## Step 3: authenticated GPS updates
+
+Implemented: `POST /buses/{id}/location` updates the coordinates and reading time
+for an existing bus. Each bus uses a separate secret bearer token:
+
+- `demo-bus-01`: `TRACKER_TOKEN_DEMO_BUS_01`
+- `demo-bus-02`: `TRACKER_TOKEN_DEMO_BUS_02`
+
+Local development tokens are stored in `.env` and ignored by Git. To set up a new
+checkout, generate tokens once (this command refuses to overwrite an existing file):
+
+```powershell
+node -e "const fs=require('node:fs'); const crypto=require('node:crypto'); fs.writeFileSync('.env', ['TRACKER_TOKEN_DEMO_BUS_01='+crypto.randomBytes(32).toString('hex'), 'TRACKER_TOKEN_DEMO_BUS_02='+crypto.randomBytes(32).toString('hex')].join('\n')+'\n', {flag:'wx'});"
+npm start
+```
+
+If `.env` already exists, keep it and run `npm start`. Environment variables take
+precedence over `.env`. Empty or shorter-than-32-character tokens disable updates
+for that bus with HTTP 503. Restart the server after changing tokens.
+
+In Swagger UI:
+
+1. Open `.env` locally and copy the value for `TRACKER_TOKEN_DEMO_BUS_01`.
+2. Click **Authorize**, paste the token without `Bearer`, then authorize.
+3. Expand `POST /buses/{id}/location`, click **Try it out** and use `demo-bus-01`.
+4. Enter numeric `latitude` and `longitude`. Replace `recordedAt` with a fresh UTC
+   timestamp from `(Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")`.
+5. Execute, then call `GET /routes/demo-mirpur-farmgate/buses` to see the new reading.
+
+Example body (replace the timestamp before sending):
+
+```json
+{
+  "latitude": 23.799,
+  "longitude": 90.371,
+  "recordedAt": "2026-11-05T10:00:00.000Z"
+}
+```
+
+Latitude must be between -90 and 90, longitude between -180 and 180. Numeric
+strings, unknown fields, missing fields and invalid calendar dates are rejected.
+`recordedAt` must be canonical UTC ISO with milliseconds, no later than server time
+and strictly newer than the saved timestamp. Old readings can still be stale;
+freshness is based on observation time, not the time the request arrived.
+
+| Status | Meaning |
+| --- | --- |
+| 200 | Updated bus, visible immediately through the read endpoint |
+| 400 | Invalid fields, coordinates, timestamp or malformed JSON |
+| 401 | Token missing or incorrect for this bus |
+| 404 | Unknown bus |
+| 409 | Reading is older than or equal to the saved timestamp |
+| 413 | JSON body exceeds 1 KB |
+| 415 | Unsupported content type or encoding |
+| 503 | Bus token is missing or too short in server configuration |
+
+Rejected updates do not modify bus data. Tokens are not exposed through the API or
+Swagger document. Keep `.env` and tokens out of Git, screenshots and walkthroughs.
+This remains a local demo; use HTTPS and rotate development tokens before public use.
+
 ## Later steps (not implemented)
 
-1. Bus locations for a selected route with timestamps and stale-data flags.
-2. Authenticated, validated GPS updates and persistent storage.
-3. Extend Swagger documentation alongside each endpoint, then record the demo walkthrough.
+1. Persistent storage for location updates.
+2. Deployment and the demo walkthrough.
 
-Step 1 has no database, location updates, authentication, arrival estimates or deployment.
+The current demo has no database, arrival estimates or deployment. Accepted writes
+are in memory and reset on restart. Seed data and tracker updates remain simulated.
 The integration test starts a real local HTTP server and checks the route response,
 sample coordinate bounds and JSON 404 handling.
 It also checks the published documentation example against the real API response,
 the Swagger page and its JavaScript/CSS assets.
+Bus tests cover the exact freshness boundary, unchanged reading timestamps,
+route filtering, coordinates, cache headers, documented fields, empty routes and unknown routes.
+GPS write tests cover per-bus tokens, missing configuration, coordinate limits,
+zero coordinates, invalid timestamps, malformed/oversized JSON, replay rejection,
+unchanged data after rejection and immediate read-after-write behavior.
 
 ## Backend evaluation criteria
 
@@ -54,11 +139,11 @@ data handling, validation and error handling using Swagger UI or Scalar.
 
 | Criterion | Current evidence | Remaining work |
 | --- | --- | --- |
-| API functionality | Working `GET /routes`, tested over HTTP | Bus location reads and GPS updates |
+| API functionality | Route discovery, bus-location reads and authenticated GPS updates, tested over HTTP | Persistence and deployment |
 | Code structure | Separate app, server, route data and OpenAPI document | Add each feature in a small step |
-| Data handling | Ordered stops, stable IDs, explicit simulation label | Persist bus location updates |
-| Validation | Test checks sample coordinate bounds | Validate external GPS inputs when the write endpoint is added |
-| Error handling | JSON 404 for unknown endpoints and unsupported methods | Authentication, invalid-input and missing-bus errors |
+| Data handling | Ordered stops, stable IDs, simulated readings, UTC timestamps and computed stale flags | Persist bus location updates |
+| Validation | Per-bus tokens, coordinate bounds/types, strict UTC timestamps, newer readings only, body limit and unknown-field rejection | Recheck with persistent storage |
+| Error handling | JSON errors for invalid input/authentication, missing resources, stale writes, oversized bodies and missing configuration | Storage failures when persistence is added |
 | API demonstration | Swagger UI at `/docs`, examples and response schemas | Document new endpoints as they are implemented |
 
 This is an early milestone, not the completed recruitment submission. The final
